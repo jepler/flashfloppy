@@ -265,9 +265,49 @@ out:
     spi_release();
 }
 
+static struct timer sd_cd_timer;
+static uint32_t sd_cd_shift;
+static void sd_cd_timer_fn(void *unused)
+{
+    sd_cd_shift <<= 1;
+    sd_cd_shift |= gpio_read_pin(gpioc, 9);
+    timer_set(&sd_cd_timer, sd_cd_timer.deadline + time_ms(10));
+}
+
 static bool_t sd_inserted(void)
 {
-    return gpio_read_pin(gpioc, 9);
+    /* 8 * 10ms samples == 80ms debouce */
+    return (~sd_cd_shift & 255) == 0;
+}
+
+static void sd_phys_init(void)
+{
+    static bool_t inited;
+
+    if (inited)
+        return;
+    inited = TRUE;
+
+    timer_init(&sd_cd_timer, sd_cd_timer_fn, NULL);
+    timer_set(&sd_cd_timer, time_now());
+
+    /* Turn on the clocks. */
+    rcc->apb1enr |= RCC_APB1ENR_SPI2EN;
+
+    /* Enable external I/O pins. */
+    gpio_configure_pin(gpiob, PIN_CS, GPO_pushpull(SPI_PIN_SPEED, HIGH));
+#if MCU == STM32F105
+    gpio_configure_pin(gpiob, 13, AFO_pushpull(SPI_PIN_SPEED)); /* CK */
+    gpio_configure_pin(gpiob, 14, GPI_pull_up); /* MISO */
+    gpio_configure_pin(gpiob, 15, AFO_pushpull(SPI_PIN_SPEED)); /* MOSI */
+#elif MCU == AT32F435
+    gpio_set_af(gpiob, 13, 5);
+    gpio_configure_pin(gpiob, 13, AFO_pushpull(SPI_PIN_SPEED)); /* CK */
+    gpio_set_af(gpiob, 14, 5);
+    gpio_configure_pin(gpiob, 14, AFI(PUPD_up)); /* MISO */
+    gpio_set_af(gpiob, 15, 5);
+    gpio_configure_pin(gpiob, 15, AFO_pushpull(SPI_PIN_SPEED)); /* MOSI */
+#endif
 }
 
 static void sd_spi_set_cr(uint32_t cr1, uint32_t br)
@@ -288,33 +328,17 @@ static DSTATUS sd_disk_initialize(BYTE pdrv)
     if (pdrv)
         return RES_PARERR;
 
-    status |= STA_NOINIT;
-    if (!sd_inserted())
-        return status;
-
-    /* Turn on the clocks. */
-    rcc->apb1enr |= RCC_APB1ENR_SPI2EN;
-
-    /* Enable external I/O pins. */
-    gpio_configure_pin(gpiob, PIN_CS, GPO_pushpull(SPI_PIN_SPEED, HIGH));
-#if MCU == STM32F105
-    gpio_configure_pin(gpiob, 13, AFO_pushpull(SPI_PIN_SPEED)); /* CK */
-    gpio_configure_pin(gpiob, 14, GPI_pull_up); /* MISO */
-    gpio_configure_pin(gpiob, 15, AFO_pushpull(SPI_PIN_SPEED)); /* MOSI */
-#elif MCU == AT32F435
-    gpio_set_af(gpiob, 13, 5);
-    gpio_configure_pin(gpiob, 13, AFO_pushpull(SPI_PIN_SPEED)); /* CK */
-    gpio_set_af(gpiob, 14, 5);
-    gpio_configure_pin(gpiob, 14, AFI(PUPD_up)); /* MISO */
-    gpio_set_af(gpiob, 15, 5);
-    gpio_configure_pin(gpiob, 15, AFO_pushpull(SPI_PIN_SPEED)); /* MOSI */
-#endif
+    sd_phys_init();
 
     /* Configure SPI: 8-bit mode, MSB first, CPOL Low, CPHA Leading Edge. */
     cr1 = (SPI_CR1_MSTR | /* master */
            SPI_CR1_SSM | SPI_CR1_SSI | /* software NSS */
            SPI_CR1_SPE);
     sd_spi_set_cr(cr1, INIT_SPEED_DIV);
+
+    status |= STA_NOINIT;
+    if (!sd_inserted())
+        return status;
 
     /* Drain SPI I/O. */
     spi_quiesce(spi);
@@ -399,15 +423,6 @@ out:
         sd_spi_set_cr(cr1, DEFAULT_SPEED_DIV);
         printk("SD Card configured\n");
         dump_cid_info();
-    } else {
-        /* Disable SPI. */
-        spi->cr1 = 0;
-        rcc->apb1enr &= ~RCC_APB1ENR_SPI2EN;
-        /* Configure external I/O pins as pulled-up inputs. */
-        gpio_configure_pin(gpiob, PIN_CS, GPI_pull_up);
-        gpio_configure_pin(gpiob, 13, GPI_pull_up); /* CK */
-        gpio_configure_pin(gpiob, 14, GPI_pull_up); /* MISO */
-        gpio_configure_pin(gpiob, 15, GPI_pull_up); /* MOSI */
     }
 
     return status;
