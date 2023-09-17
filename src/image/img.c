@@ -1975,8 +1975,11 @@ static bool_t raw_write_track(struct image *im)
         p = (write->bc_end + 15) / 16;
 
     while ((int16_t)(p - c) > 128) {
+
         if (im->img.decode_pos == 0) {
+
             uint8_t x;
+
             if (im->sync == SYNC_fm) {
 
                 uint16_t sync;
@@ -2036,10 +2039,14 @@ static bool_t raw_write_track(struct image *im)
                 im->img.decode_data_pos = 0;
                 break;
             }
-        } else if (im->img.decode_pos == 1) {
+
+        } else {
+
             /* Data record, shy address mark */
             unsigned int sec_sz;
             int sec_nr = im->img.write_sector;
+
+            ASSERT(im->img.decode_pos == 1);
 
             if (sec_nr < 0) {
                 if (sec_nr == -1) {
@@ -2048,9 +2055,7 @@ static bool_t raw_write_track(struct image *im)
                 }
                 if (sec_nr < 0) {
                     log("DAM Unknown\n");
-                    im->img.write_sector = -2;
-                    im->img.decode_pos = 0;
-                    continue;
+                    goto dam_out;
                 }
             }
 
@@ -2073,7 +2078,7 @@ static bool_t raw_write_track(struct image *im)
             if (im->img.decode_data_pos < sec_sz) {
                 unsigned int nr;
                 nr = sec_sz - im->img.decode_data_pos;
-                nr = min_t(unsigned int, nr, CHUNK_SIZE - (off & 511));
+                nr = min_t(unsigned int, nr, CHUNK_SIZE - (off & 511)); /* XXX */
                 if (p - c < nr)
                     break;
 
@@ -2109,8 +2114,11 @@ static bool_t raw_write_track(struct image *im)
             if (crc != 0) {
                 log("Bad CRC: %04x, %u[%02x]\n", crc, sec_nr, sec->r);
             }
+
+        dam_out:
             im->img.write_sector = -2;
             im->img.decode_pos = 0;
+
         }
     }
 
