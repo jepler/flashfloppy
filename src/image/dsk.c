@@ -494,8 +494,11 @@ static bool_t dsk_write_track(struct image *im)
         p = (write->bc_end + 15) / 16;
 
     while ((int16_t)(p - c) > 128) {
+
         if (im->dsk.decode_pos == 0) {
+
             uint8_t x;
+
             if (be16toh(buf[c++ & bufmask]) != 0x4489)
                 continue;
             if ((x = mfmtobin(buf[c & bufmask])) == 0xa1)
@@ -512,8 +515,7 @@ static bool_t dsk_write_track(struct image *im)
                     wrbuf[i] = mfmtobin(buf[c++ & bufmask]);
                 crc = crc16_ccitt(wrbuf, i, 0xffff);
                 if (crc != 0) {
-                    log("IDAM Bad CRC: %04x, %02x\n",
-                            crc, wrbuf[6]);
+                    log("IDAM Bad CRC: %04x, %02x\n", crc, wrbuf[6]);
                     break;
                 }
                 /* Convert logical sector number -> rotational number. */
@@ -532,10 +534,14 @@ static bool_t dsk_write_track(struct image *im)
                 im->dsk.decode_data_pos = 0;
                 break;
             }
-        } else if (im->dsk.decode_pos == 1) {
+
+        } else {
+
             /* Data record, shy address mark */
             unsigned int sec_sz;
             int sec_nr = im->dsk.write_sector;
+
+            ASSERT(im->dsk.decode_pos == 1);
 
             if (sec_nr < 0) {
                 if (sec_nr == -1) {
@@ -544,9 +550,7 @@ static bool_t dsk_write_track(struct image *im)
                 }
                 if (sec_nr < 0) {
                     log("DAM Unknown\n");
-                    im->dsk.write_sector = -2;
-                    im->dsk.decode_pos = 0;
-                    continue;
+                    goto dam_out;
                 }
             }
 
@@ -560,7 +564,7 @@ static bool_t dsk_write_track(struct image *im)
             if (im->dsk.decode_data_pos < sec_sz) {
                 unsigned int nr;
                 nr = sec_sz - im->dsk.decode_data_pos;
-                nr = min_t(unsigned int, nr, CHUNK_SIZE - (off & 511));
+                nr = min_t(unsigned int, nr, CHUNK_SIZE - (off & 511)); /* XXX */
                 if (p - c < nr)
                     break;
 
@@ -596,8 +600,11 @@ static bool_t dsk_write_track(struct image *im)
                 log("Bad CRC: %04x, %d[%02x]\n",
                     crc, sec_nr, tib->sib[sec_nr].r);
             }
+
+        dam_out:
             im->dsk.write_sector = -2;
             im->dsk.decode_pos = 0;
+
         }
     }
 
