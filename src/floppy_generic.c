@@ -686,6 +686,8 @@ static void IRQ_wdata_dma(void)
             if (!(bc_prod&31))
                 bc_buf[((bc_prod-1) / 32) & bc_bufmask] = htobe32(bc_dat);
         }
+        curr += cell >> 1; /* remove the 1/2-cell bias */
+        prev -= curr >> 3; /* de-jitter/precomp: carry 1/8 of phase error */
         bc_dat = (bc_dat << 1) | 1;
         bc_prod++;
         switch (sync) {
